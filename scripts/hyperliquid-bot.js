@@ -29,6 +29,7 @@ import { Hyperliquid } from 'hyperliquid';
 const PORT = parseInt(process.env.PORT || '3142');
 const TESTNET = process.env.HL_TESTNET === 'true';
 const PRIVATE_KEY = process.env.HL_PRIVATE_KEY || '';
+const VAULT_ADDRESS = process.env.HL_PUBLIC_WALLET || ''; // main wallet where funds live
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const TELEGRAM_CHAT = process.env.TELEGRAM_CHAT_ID || '';
 const DEFAULT_LEVERAGE = parseInt(process.env.LEVERAGE || '3');
@@ -92,12 +93,19 @@ async function initSDK() {
     log('WARNING: No HL_PRIVATE_KEY set. Running in DRY_RUN mode only.');
     return;
   }
-  sdk = new Hyperliquid({
+  const sdkOpts = {
     privateKey: PRIVATE_KEY,
     testnet: TESTNET,
-  });
+  };
+  if (VAULT_ADDRESS) {
+    sdkOpts.walletAddress = VAULT_ADDRESS; // trade on behalf of main wallet
+  }
+  sdk = new Hyperliquid(sdkOpts);
   await sdk.connect();
+  const apiAddr = sdk.custom.getUserAddress();
   log(`Hyperliquid SDK connected (${TESTNET ? 'TESTNET' : 'MAINNET'})`);
+  log(`  API wallet: ${apiAddr}`);
+  log(`  Vault/Main wallet: ${VAULT_ADDRESS || apiAddr}`);
 
   // Build asset index map
   try {
@@ -135,7 +143,8 @@ async function calcPositionSize(coin, price) {
   }
 
   try {
-    const addr = sdk.custom.getUserAddress();
+    // Query main wallet (where funds are), not the API wallet
+    const addr = VAULT_ADDRESS || sdk.custom.getUserAddress();
     const balances = await sdk.info.perpetuals.getClearinghouseState(addr);
     const equity = parseFloat(balances.marginSummary.accountValue);
     const riskAmount = equity * (RISK_PCT / 100);
