@@ -33,7 +33,6 @@ const VAULT_ADDRESS = process.env.HL_PUBLIC_WALLET || ''; // main wallet where f
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const TELEGRAM_CHAT = process.env.TELEGRAM_CHAT_ID || '';
 const DEFAULT_LEVERAGE = parseInt(process.env.LEVERAGE || '3');
-const RISK_PCT = parseFloat(process.env.RISK_PCT || '10'); // % of equity per trade
 const SLIPPAGE = parseFloat(process.env.SLIPPAGE || '0.05'); // 5%
 const SL_ATR_MULT = parseFloat(process.env.SL_ATR_MULT || '1.5');
 const TP_ATR_MULT = parseFloat(process.env.TP_ATR_MULT || '3.0');
@@ -53,8 +52,8 @@ const SYMBOL_MAP = {
   'RENDERUSDT': 'RENDER', 'RENDERUSD': 'RENDER', 'RENDER': 'RENDER',
 };
 
-// Allowed coins (only trade these)
-const ALLOWED_COINS = new Set(['BTC', 'SOL', 'SUI', 'ETH', 'XRP']);
+// Allowed coins — TOP 3 performers only
+const ALLOWED_COINS = new Set(['BTC', 'SOL', 'SUI']);
 
 // === STATE ===
 let sdk = null;
@@ -132,14 +131,16 @@ async function initSDK() {
 }
 
 // === POSITION SIZING ===
+// Uses 25% of available equity per trade (max 3 concurrent positions = 75% max exposure)
+const POSITION_PCT = parseFloat(process.env.POSITION_PCT || '25'); // % of equity per trade
+
 async function calcPositionSize(coin, price) {
   // In dry run mode without SDK, use fixed equity estimate
   if (DRY_RUN && !sdk) {
-    const equity = 10000; // simulated equity
-    const riskAmount = equity * (RISK_PCT / 100);
-    const slDistance = price * SL_ATR_MULT * 0.02;
-    const size = riskAmount / slDistance;
-    return { size: Math.floor(size * 10000) / 10000, equity };
+    const equity = 10000;
+    const tradeValue = equity * (POSITION_PCT / 100);
+    const size = tradeValue / price;
+    return { size: Math.floor(size * 10000) / 10000, equity, tradeValue };
   }
 
   try {
@@ -147,15 +148,14 @@ async function calcPositionSize(coin, price) {
     const addr = VAULT_ADDRESS || sdk.custom.getUserAddress();
     const balances = await sdk.info.perpetuals.getClearinghouseState(addr);
     const equity = parseFloat(balances.marginSummary.accountValue);
-    const riskAmount = equity * (RISK_PCT / 100);
-    // With leverage, position size = risk / (SL distance as % of price)
-    // Approximate SL distance as price * SL_ATR_MULT * 0.02 (rough daily ATR ~2%)
-    const slDistance = price * SL_ATR_MULT * 0.02;
-    const size = riskAmount / slDistance;
-    return { size: Math.floor(size * 10000) / 10000, equity };
+    // Use POSITION_PCT% of equity per trade
+    const tradeValue = equity * (POSITION_PCT / 100);
+    const size = tradeValue / price;
+    log(`  Equity: $${equity.toFixed(2)}, Trade size: $${tradeValue.toFixed(2)} (${POSITION_PCT}%), ${size.toFixed(6)} ${coin} @ $${price}`);
+    return { size: Math.floor(size * 10000) / 10000, equity, tradeValue };
   } catch (e) {
     log(`Position sizing error: ${e.message}`);
-    return { size: 0, equity: 0 };
+    return { size: 0, equity: 0, tradeValue: 0 };
   }
 }
 
@@ -329,17 +329,17 @@ const server = http.createServer(async (req, res) => {
 // === STARTUP ===
 async function main() {
   console.log(`
-====================================
-  Momentum Rider Trading Bot
-====================================
-  Mode:      ${DRY_RUN ? 'PAPER (dry run)' : 'LIVE TRADING'}
-  Network:   ${TESTNET ? 'Testnet' : 'Mainnet'}
-  Leverage:  ${DEFAULT_LEVERAGE}x
-  Risk/Trade: ${RISK_PCT}%
-  SL: ${SL_ATR_MULT}x ATR | TP: ${TP_ATR_MULT}x ATR
-  Coins:     ${[...ALLOWED_COINS].join(', ')}
-  Telegram:  ${TELEGRAM_TOKEN ? 'Enabled' : 'Disabled'}
-====================================
+=============================================
+  Crypto Momentum Rider Bot
+=============================================
+  Mode:        ${DRY_RUN ? 'PAPER (dry run)' : 'LIVE TRADING'}
+  Network:     ${TESTNET ? 'Testnet' : 'Mainnet'}
+  Leverage:    ${DEFAULT_LEVERAGE}x
+  Position:    ${POSITION_PCT}% of equity per trade
+  SL/TP:       ${SL_ATR_MULT}x / ${TP_ATR_MULT}x ATR
+  Coins:       ${[...ALLOWED_COINS].join(', ')}
+  Telegram:    ${TELEGRAM_TOKEN ? 'Enabled' : 'Disabled'}
+=============================================
 `);
 
   if (!DRY_RUN) {
