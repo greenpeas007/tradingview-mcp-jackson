@@ -1,0 +1,8 @@
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[phases.install]
+cmds = ["npm ci"]
+
+[start]
+cmd = "node scripts/hyperliquid-bot.js"

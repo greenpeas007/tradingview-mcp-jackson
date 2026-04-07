@@ -1,0 +1,63 @@
+//@version=6
+indicator("Momentum Rider Alerts", overlay=true)
+
+// === SAME LOGIC AS STRATEGY — INDICATOR VERSION FOR ALERTS ===
+
+// === INDICATORS ===
+emaFast = ta.ema(close, 9)
+emaSlow = ta.ema(close, 21)
+ema50 = ta.ema(close, 50)
+rsi = ta.rsi(close, 14)
+atr = ta.atr(14)
+[macdLine, signalLine, hist] = ta.macd(close, 12, 26, 9)
+[stValue, stDir] = ta.supertrend(2.5, 10)
+volMA = ta.sma(volume, 20)
+
+stBull = stDir < 0
+emaCrossUp = ta.crossover(emaFast, emaSlow)
+emaCrossDn = ta.crossunder(emaFast, emaSlow)
+histCrossUp = ta.crossover(hist, 0)
+rsiCross50 = ta.crossover(rsi, 50)
+
+uptrend = emaFast > emaSlow
+strongUp = uptrend and stBull
+
+// === 6 ENTRY TYPES ===
+e1 = emaCrossUp and stBull and rsi > 40 and rsi < 75
+e2 = strongUp and close > emaFast and close[1] <= emaFast and rsi > 35 and rsi < 55
+e3 = strongUp and histCrossUp and close > open and volume > volMA * 1.2
+e4 = stBull and not stBull[1] and emaFast > emaSlow
+e5 = uptrend and stBull and low <= emaSlow * 1.01 and close > emaSlow and close > open and rsi > 35
+e6 = strongUp and rsiCross50 and close > emaSlow
+
+buySignal = e1 or e2 or e3 or e4 or e5 or e6
+sellSignal = emaCrossDn and not stBull
+
+// === ALERTS ===
+alertcondition(buySignal, title="BUY Signal", message='{"symbol":"{{ticker}}","action":"BUY","price":"{{close}}","time":"{{time}}","message":"Momentum Rider - BUY confluence"}')
+alertcondition(sellSignal, title="SELL Signal", message='{"symbol":"{{ticker}}","action":"SELL","price":"{{close}}","time":"{{time}}","message":"Momentum Rider - Trend reversal SELL"}')
+
+// === PLOTS ===
+plot(emaFast, "EMA 9", color=color.green, linewidth=1)
+plot(emaSlow, "EMA 21", color=color.orange, linewidth=2)
+plot(ema50, "EMA 50", color=color.blue, linewidth=2)
+plot(stBull ? stValue : na, "ST", color=color.new(color.green, 50), linewidth=1, style=plot.style_linebr)
+
+plotshape(buySignal, title="Buy", text="BUY", style=shape.labelup, location=location.belowbar, color=color.green, textcolor=color.white, size=size.small)
+plotshape(sellSignal, title="Sell", text="SELL", style=shape.labeldown, location=location.abovebar, color=color.red, textcolor=color.white, size=size.small)
+
+plot(buySignal ? close - atr * 1.5 : na, "SL Level", color=color.red, style=plot.style_cross, linewidth=2)
+plot(buySignal ? close + atr * 3.0 : na, "TP Level", color=color.lime, style=plot.style_cross, linewidth=2)
+
+var table t = table.new(position.top_right, 2, 5, bgcolor=color.new(color.black, 80))
+if barstate.islast
+    table.cell(t, 0, 0, "Trend", text_color=color.gray, text_size=size.small)
+    table.cell(t, 1, 0, strongUp ? "STRONG ↑" : uptrend ? "UP" : "DOWN", text_color=strongUp ? color.green : uptrend ? color.yellow : color.red, text_size=size.small)
+    table.cell(t, 0, 1, "RSI", text_color=color.gray, text_size=size.small)
+    table.cell(t, 1, 1, str.tostring(rsi, "#.0"), text_color=color.white, text_size=size.small)
+    table.cell(t, 0, 2, "MACD", text_color=color.gray, text_size=size.small)
+    table.cell(t, 1, 2, hist > 0 ? "Bullish" : "Bearish", text_color=hist > 0 ? color.green : color.red, text_size=size.small)
+    table.cell(t, 0, 3, "SuperT", text_color=color.gray, text_size=size.small)
+    table.cell(t, 1, 3, stBull ? "Bull" : "Bear", text_color=stBull ? color.green : color.red, text_size=size.small)
+    table.cell(t, 0, 4, "Signal", text_color=color.gray, text_size=size.small)
+    table.cell(t, 1, 4, buySignal ? "BUY !" : sellSignal ? "SELL !" : "---", text_color=buySignal ? color.green : sellSignal ? color.red : color.gray, text_size=size.small)
